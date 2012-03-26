@@ -1,0 +1,13 @@
+-DLSI_C -DMSDOS
+-acdos.obj
+-Xa:\LSIC86\BIN -La:\LSIC86\LIB -Ia:\LSIC86\INCLUDE
+#-acpro.obj	#プロファイラ
+-h -j1 -O 
+-m
+# -p		#プロファイラ
+#-k'-s 4800'
+&
+# -lnoexpand.obj 
+-ltinymain.obj
+-lknjlib
+-ldoslib

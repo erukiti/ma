@@ -1,0 +1,398 @@
+; Assembler code 
+
+CGROUP	GROUP	TEXT
+DGROUP	GROUP	DATA,BSS
+
+TEXT	CSEG
+
+DATA	DSEG
+
+BSS	DSEG
+
+TEXT	CSEG
+
+; MCD driver
+;
+
+.186
+
+;void	rsputc(uint u)
+rsputc_::
+	PUSH	CX
+	PUSH	DX
+
+	PUSH	AX
+	cld
+	CALLF	[mcd_putc_].D
+	ADD	SP,2
+
+	POP	DX
+	POP	CX
+	RET
+
+;uint	rsgetc()
+;rsgetc_::
+;	PUSH	CX
+;	PUSH	DX
+
+;	cld
+;	CALLF	[mcd_getc_].D
+;
+;	POP	DX
+;	POP	CX
+;	RET
+
+
+
+;uint	rsbufs(uint w)
+
+rsbufs_::
+	PUSH	CX
+	PUSH	DX
+
+;	c=mcd_bufstat(MCD_DCSET,w);
+	push	ax
+	PUSH	1
+	cld
+	CALLF	[mcd_bufstat_].D
+	ADD	SP,4
+
+	POP	DX
+	POP	CX
+	RET
+
+
+;uint	rsloc()
+
+rsloc_::
+	PUSH	CX
+	PUSH	DX
+
+	cld
+	CALLF	[mcd_rbufchars_].D
+
+	POP	DX
+	POP	CX
+	RET
+
+
+;uint	rssloc()
+rssloc_::
+	PUSH	CX
+	PUSH	DX
+
+	cld
+	CALLF	[mcd_sbufchars_].D
+
+	POP	DX
+	POP	CX
+	RET
+
+
+;uint	rsstat()
+
+rsstat_::
+	PUSH	CX
+	PUSH	DX
+
+;	c=mcd_linestat(MCD_DCGET);
+	XOR	AX,AX
+	PUSH	ax
+	cld
+	CALLF	[mcd_linestat_].D
+	ADD	SP,2
+
+	POP	DX
+	POP	CX
+	RET
+
+
+;uint	rsctrl(uint w)
+
+rsctrl_::
+	PUSH	CX
+	PUSH	DX
+
+;	c=mcd_linestat(MCD_DCSET,w);
+	PUSH	AX
+	PUSH	1
+	cld
+	CALLF	[mcd_linestat_].D
+	ADD	SP,4
+
+	POP	DX
+	POP	CX
+	RET
+
+
+;void	rssetup(mcd_lprm_t lerge *param)
+
+rssetup_::
+	PUSH	CX
+	PUSH	DX
+
+;	mcd_linepara(MCD_DCSET,param);
+	push	bx
+	push	ax
+	PUSH	1
+	cld
+	CALLF	[mcd_linepara_].D
+	ADD	SP,6
+
+	POP	DX
+	POP	CX
+	RET
+
+
+;
+;void	rsbufg(mcd_bufstat_t lerge *param)
+
+rsbufg_::
+	PUSH	CX
+	PUSH	DX
+
+;	mcd_bufstat(MCD_DCGET,param);
+	push	bx
+	push	ax
+	XOR	AX,AX
+	PUSH	AX
+	cld
+	CALLF	[mcd_bufstat_].D
+	ADD	SP,6
+
+	POP	DX
+	POP	CX
+	RET
+
+
+;void	rsbrk()
+rsbrk_::
+	PUSH	CX
+	PUSH	DX
+
+;	mcd_breaksig(MCD_DCSET);
+	PUSH	1
+	cld
+	CALLF	[mcd_breaksig_].D
+	ADD	SP,2
+
+	POP	DX
+	POP	CX
+	RET
+
+;uint	rsgets(void *buf,size_t n)
+rsgets_::
+	push	cx
+	push	dx
+
+	push	ax			;]
+	cld
+	CALLF	[mcd_rbufchars_].D
+	cmp	ax,bx
+	jl	rsgets_1
+	mov	ax,bx
+
+rsgets_1:
+	pop	bx			;[
+	or	ax,ax
+	jz	rsgets_2
+
+	push	ax			; size
+	push	ds			; 
+	push	bx			; buf
+	cld
+	callf	[mcd_blockread_].D
+	add	sp,6
+
+rsgets_2:
+	pop	dx
+	pop	cx
+	ret
+
+;uint	wcdout(void *buf,size_t n)
+wcdout_::
+	push	si
+
+	mov	si,ax
+	mov	cx,bx
+	mov	ah,1
+	cld
+	callf	[wcd_entry_].D		; キーバッファにたたきこみ。
+	mov	ax,cx
+
+	pop	si
+	ret
+
+reset_::
+	mov	ax,[hsbseg_].w
+	or	ax,ax
+	jz	reset_1
+
+	mov	2[reset_vec],ax
+	xor	ax,ax
+	mov	[reset_vec],ax
+	jmpf	[reset_vec].D
+
+reset_1:
+	ret
+
+
+
+;DOS callgate
+
+;mcd_gettimer_t far* pascal far remote_int(uint ch)
+remote_int_::
+
+	test	[ch_].B,1		; if (iscall())
+	JE	remote_int_1
+
+	les	bx,[inmcd_]		; InMCDフラグチェック
+	cmp	es:[bx].b,0
+	jnz	remote_int_1
+
+; CD信号のチェック
+	call	rsstat_
+	test	ax,128			; DSR
+	je	reset_
+
+	test	[ch_].b,16		; ch.frug.cd
+	je	remote_int_2
+
+	test	ax,8192			; DCD
+	je	reset_
+
+remote_int_2:
+
+	mov	ax,remote_buf
+	mov	bx,128
+	call	rsgets_
+	or	ax,ax
+	jz	remote_int_1
+
+	mov	bx,ax
+	mov	ax,remote_buf
+	call	wcdout_
+
+remote_int_1:
+	mov	dx,ds
+	mov	ax,mcdtimer_+2
+	retf	2
+
+;void	int29h(uint ax)
+int29h_::
+
+	push	bp
+	push	ds
+	push	es
+	mov	bp,seg ch_
+	mov	ds,bp
+	mov	bp,sp
+
+;	if (iscall())
+	TEST	[ch_].B,1
+	JE	_75
+;		rsputc(ax);
+
+	push	ax
+	push	bx
+	PUSH	CX
+	PUSH	DX
+
+	PUSH	AX
+	cld
+	CALLF	[mcd_putc_].D
+	ADD	SP,2
+
+	POP	DX
+	POP	CX
+	pop	bx
+	pop	ax
+
+_75:
+;		int29h_save(ax);
+	push	ax
+	pushf
+	cld
+	callf	[int29h_save_].D
+	pop	ax
+
+	pop	es
+	pop	ds
+	pop	bp
+	iret
+
+
+;void	catch_int29h()
+
+catch_int29h_::
+;{
+;	int29h_save = *(long far*)MK_FP(0,0x29*4);
+	XOR	AX,AX
+	MOV	ES,AX
+
+	MOV	BX,ES:[164].W
+	MOV	AX,ES:2[164].W
+	MOV	[int29h_save_].W,BX
+	MOV	2[int29h_save_].W,AX
+
+;	*(long far*)MK_FP(0,0x29*4) = int29h;
+	cli
+	MOV	BX,int29h_
+	MOV	AX,CS
+	MOV	ES:[164].W,BX
+	MOV	ES:2[164].W,AX
+	sti
+;}
+	RET
+
+
+;void	release_int29h()
+
+release_int29h_::
+;{
+;	*(long far*)MK_FP(0,0x29*4) = int29h_save;
+
+	XOR	AX,AX
+	MOV	ES,AX
+
+	cli
+	MOV	BX,[int29h_save_].W
+	MOV	AX,2[int29h_save_].W
+	MOV	ES:[164].W,BX
+	MOV	ES:2[164].W,AX
+	sti
+;}
+	RET
+
+
+
+BSS	DSEG
+int29h_save_::	RS	4
+	EVEN
+remote_buf:	RS	128
+	even
+reset_vec:
+		RS	4
+	even
+
+extrn	mcd_putc_
+extrn	mcd_getc_
+extrn	mcd_bufstat_
+extrn	mcd_rbufchars_
+extrn	mcd_sbufchars_
+extrn	mcd_linestat_
+extrn	mcd_linestat_
+extrn	mcd_linepara_
+extrn	mcd_bufstat_
+extrn	mcd_breaksig_
+extrn	mcd_blockread_
+
+;extrn	remote_int_main_
+
+extrn	mcdtimer_
+extrn	wcd_entry_
+extrn	ch_
+extrn	inmcd_
+extrn	hsbseg_
+
+	END
